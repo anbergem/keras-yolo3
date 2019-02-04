@@ -62,7 +62,7 @@ def create_training_instances(
 
     return train_ints, valid_ints, sorted(labels), max_box_per_image
 
-def create_callbacks(saved_weights_name, tensorboard_logs, model_to_save):
+def create_callbacks(saved_weights_name, intermediate_saved_weights_name, tensorboard_logs, model_to_save):
     makedirs(tensorboard_logs)
     
     early_stop = EarlyStopping(
@@ -74,12 +74,21 @@ def create_callbacks(saved_weights_name, tensorboard_logs, model_to_save):
     )
     checkpoint = CustomModelCheckpoint(
         model_to_save   = model_to_save,
-        filepath        = saved_weights_name,# + '{epoch:02d}.h5', 
+        filepath        = saved_weights_name,
         monitor         = 'loss', 
         verbose         = 1, 
         save_best_only  = True, 
         mode            = 'min', 
         period          = 1
+    )
+    checkpoint_intermediate = CustomModelCheckpoint(
+        model_to_save   = model_to_save,
+        filepath        = intermediate_saved_weights_name,
+        monitor         = 'val_loss', 
+        verbose         = 1, 
+        save_best_only  = False, 
+        mode            = 'min', 
+        period          = 5
     )
     reduce_on_plateau = ReduceLROnPlateau(
         monitor  = 'loss',
@@ -96,7 +105,7 @@ def create_callbacks(saved_weights_name, tensorboard_logs, model_to_save):
         write_graph            = True,
         write_images           = True,
     )    
-    return [early_stop, checkpoint, reduce_on_plateau, tensorboard]
+    return [early_stop, checkpoint_intermediate, checkpoint, reduce_on_plateau, tensorboard]
 
 def create_model(
     nb_class, 
@@ -245,7 +254,12 @@ def _main_(args):
     ###############################
     #   Kick off the training
     ###############################
-    callbacks = create_callbacks(config['train']['saved_weights_name'], config['train']['tensorboard_dir'], infer_model)
+    callbacks = create_callbacks(
+        config['train']['saved_weights_name'],
+        config['train']['intermediate_weights_name'],
+        config['train']['tensorboard_dir'],
+        infer_model
+    )
 
     train_model.fit_generator(
         generator        = train_generator, 
