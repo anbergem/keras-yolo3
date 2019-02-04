@@ -249,6 +249,7 @@ def _main_(args):
 
     train_model.fit_generator(
         generator        = train_generator, 
+        validation_data  = valid_generator,
         steps_per_epoch  = len(train_generator) * config['train']['train_times'], 
         epochs           = config['train']['nb_epochs'] + config['train']['warmup_epochs'], 
         verbose          = 2 if config['train']['debug'] else 1,
@@ -274,7 +275,7 @@ def _main_(args):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description='train and evaluate YOLO_v3 model on any dataset')
-    argparser.add_argument('-c', '--conf', help='path to configuration file')   
+    argparser.add_argument('-c', '--conf', default="training/yolo3_config.json", help='path to configuration file')   
 
     args = argparser.parse_args()
     _main_(args)
