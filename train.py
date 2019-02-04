@@ -115,7 +115,8 @@ def create_model(
     warmup_batches, 
     ignore_thresh, 
     multi_gpu, 
-    saved_weights_name, 
+    saved_weights_name,
+    pre_trained_weights,
     lr,
     grid_scales,
     obj_scale,
@@ -159,8 +160,10 @@ def create_model(
     if os.path.exists(saved_weights_name): 
         print("\nLoading pretrained weights.\n")
         template_model.load_weights(saved_weights_name)
+    elif pre_trained_weights:
+        template_model.load_weights(pre_trained_weights)
     else:
-        template_model.load_weights("backend.h5", by_name=True)       
+        print("Not using pre trained weights!")
 
     if multi_gpu > 1:
         train_model = multi_gpu_model(template_model, gpus=multi_gpu)
@@ -243,6 +246,7 @@ def _main_(args):
         ignore_thresh       = config['train']['ignore_thresh'],
         multi_gpu           = multi_gpu,
         saved_weights_name  = config['train']['saved_weights_name'],
+        pre_trained_weights = config['train']['pre_trained_weights'],
         lr                  = config['train']['learning_rate'],
         grid_scales         = config['train']['grid_scales'],
         obj_scale           = config['train']['obj_scale'],
