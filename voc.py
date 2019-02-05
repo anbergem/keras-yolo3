@@ -51,7 +51,7 @@ def parse_voc_annotation_file(filename, image_directory, labels=None):
 
 
 def parse_voc_annotation(ann_dir, image_directory, cache_name, labels=None):
-    if os.path.exists(cache_name):
+    if cache_name and os.path.exists(cache_name):
         with open(cache_name, "rb") as handle:
             cache = pickle.load(handle)
         all_insts, label_counts = cache["all_insts"], cache["label_counts"]
