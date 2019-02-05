@@ -88,7 +88,7 @@ def create_callbacks(saved_weights_name, intermediate_saved_weights_name, tensor
         verbose         = 1, 
         save_best_only  = False, 
         mode            = 'min', 
-        period          = 5
+        period          = 1
     )
     reduce_on_plateau = ReduceLROnPlateau(
         monitor  = 'loss',
@@ -293,7 +293,7 @@ def _main_(args):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description='train and evaluate YOLO_v3 model on any dataset')
-    argparser.add_argument('-c', '--conf', default="training/yolo3_config.json", help='path to configuration file')   
+    argparser.add_argument('-c', '--conf', default="training/yolo3_head_laptop.json", help='path to configuration file')   
 
     args = argparser.parse_args()
     _main_(args)
