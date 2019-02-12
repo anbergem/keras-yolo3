@@ -210,7 +210,7 @@ def _main_(args):
         shuffle             = True,
         jitter              = 0.3,
         norm                = normalize,
-        explicit_net_size   = tuple(config['model']['explicit_net_size']) if 'explicit_net_size' in config['model'] else None
+        explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None
     )
     
     valid_generator = BatchGenerator(
@@ -225,7 +225,7 @@ def _main_(args):
         shuffle             = True, 
         jitter              = 0.0, 
         norm                = normalize,
-        explicit_net_size   = tuple(config['model']['explicit_net_size']) if 'explicit_net_size' in config['model'] else None
+        explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None
     )
 
     ###############################
@@ -295,7 +295,7 @@ def _main_(args):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description='train and evaluate YOLO_v3 model on any dataset')
-    argparser.add_argument('-c', '--conf', default="training/yolo3_head_laptop.json", help='path to configuration file')   
+    argparser.add_argument('-c', '--conf', default="training/yolo3_all_laptop.json", help='path to configuration file')   
 
     args = argparser.parse_args()
     _main_(args)
