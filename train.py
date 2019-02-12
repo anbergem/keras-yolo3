@@ -60,7 +60,7 @@ def create_training_instances(
 
     max_box_per_image = max([len(inst['object']) for inst in (train_ints + valid_ints)])
 
-    return train_ints, valid_ints, sorted(labels), max_box_per_image
+    return train_ints, valid_ints, labels, max_box_per_image
 
 def create_callbacks(saved_weights_name, intermediate_saved_weights_name, tensorboard_logs, model_to_save):
     makedirs(tensorboard_logs)
