@@ -17,7 +17,8 @@ class BatchGenerator(Sequence):
         max_net_size=608,    
         shuffle=True, 
         jitter=True, 
-        norm=None
+        norm=None,
+        explicit_net_size=None
     ):
         self.instances          = instances
         self.batch_size         = batch_size
@@ -32,6 +33,7 @@ class BatchGenerator(Sequence):
         self.anchors            = [BoundBox(0, 0, anchors[2*i], anchors[2*i+1]) for i in range(len(anchors)//2)]
         self.net_h              = 416  
         self.net_w              = 416
+        self.explicit_net_size  = explicit_net_size
 
         if shuffle: np.random.shuffle(self.instances)
             
@@ -148,6 +150,9 @@ class BatchGenerator(Sequence):
         return [x_batch, t_batch, yolo_1, yolo_2, yolo_3], [dummy_yolo_1, dummy_yolo_2, dummy_yolo_3]
 
     def _get_net_size(self, idx):
+        if self.explicit_net_size is not None:
+            return self.explicit_net_size[1], self.explicit_net_size[0]
+
         if idx%10 == 0:
             net_size = self.downsample*np.random.randint(self.min_net_size/self.downsample, \
                                                          self.max_net_size/self.downsample+1)

@@ -206,10 +206,11 @@ def _main_(args):
         max_box_per_image   = max_box_per_image,
         batch_size          = config['train']['batch_size'],
         min_net_size        = config['model']['min_input_size'],
-        max_net_size        = config['model']['max_input_size'],   
-        shuffle             = True, 
-        jitter              = 0.3, 
-        norm                = normalize
+        max_net_size        = config['model']['max_input_size'],
+        shuffle             = True,
+        jitter              = 0.3,
+        norm                = normalize,
+        explicit_net_size   = tuple(config['model']['explicit_net_size']) if 'explicit_net_size' in config['model'] else None
     )
     
     valid_generator = BatchGenerator(
@@ -223,7 +224,8 @@ def _main_(args):
         max_net_size        = config['model']['max_input_size'],   
         shuffle             = True, 
         jitter              = 0.0, 
-        norm                = normalize
+        norm                = normalize,
+        explicit_net_size   = tuple(config['model']['explicit_net_size']) if 'explicit_net_size' in config['model'] else None
     )
 
     ###############################
