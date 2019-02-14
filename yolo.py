@@ -1,4 +1,4 @@
-from keras.layers import Conv2D, Input, BatchNormalization, LeakyReLU, ZeroPadding2D, UpSampling2D, Lambda
+from keras.layers import Conv2D, Input, BatchNormalization, LeakyReLU, ZeroPadding2D, UpSampling2D, Lambda, MaxPooling2D, Concatenate
 from keras.layers.merge import add, concatenate
 from keras.models import Model
 from keras.engine.topology import Layer
@@ -194,6 +194,48 @@ class YoloLayer(Layer):
     def compute_output_shape(self, input_shape):
         return [(None, 1)]
 
+def max_pool_layer(pool_size=2, strides=2, padding="same"):
+    return MaxPooling2D(pool_size=pool_size, strides=strides, padding=padding)
+
+def darknet_conv_block_layers(layer_index, filter=None, kernel_size=3, strides=1, max_pool_size=None, max_pool_stride=None, activation="LeakyReLU", batch_normalization=True):
+    layers = []
+
+    # Convolution
+    if filter is not None:
+        # unlike tensorflow darknet prefer left and top paddings
+        if strides > 1:
+            layers.append(ZeroPadding2D(((1,0),(1,0))))
+
+        layers.append(Conv2D(filter,
+            kernel_size,
+            strides=strides,
+            padding="valid" if strides > 1 else "same", # unlike tensorflow darknet prefer left and top paddings
+            name="conv_%d" % layer_index,
+            use_bias=not batch_normalization
+        ))
+
+    # Batch normalization
+    if batch_normalization:
+        layers.append(BatchNormalization(epsilon=0.001, name="bnorm_%d" % layer_index))
+
+    # Activation
+    if activation == "LeakyReLU":
+        layers.append(LeakyReLU(alpha=0.1, name="activation_%d" % layer_index))
+    elif activation:
+        raise RuntimeError("Unsupported activation type: %s" % activation)
+
+    # Max pooling
+    if max_pool_size is not None and max_pool_stride is not None:
+        layers.append(MaxPooling2D(pool_size=max_pool_size, strides=max_pool_stride, padding='same', name='maxpool_%d' % layer_index))
+
+    return layers
+
+
+def compose_layers(x, layers):
+    for layer in layers:
+        x = layer(x)
+    return x
+
 def _conv_block(inp, convs, do_skip=True):
     x = inp
     count = 0
@@ -358,6 +400,110 @@ def create_yolov3_model(
 
     train_model = Model([input_image, true_boxes, true_yolo_1, true_yolo_2, true_yolo_3], [loss_yolo_1, loss_yolo_2, loss_yolo_3])
     infer_model = Model(input_image, [pred_yolo_1, pred_yolo_2, pred_yolo_3])
+
+    return [train_model, infer_model]
+
+def create_tiny_yolov3_model(
+    nb_class, 
+    anchors, 
+    max_box_per_image, 
+    max_grid, 
+    batch_size, 
+    warmup_batches,
+    ignore_thresh,
+    grid_scales,
+    obj_scale,
+    noobj_scale,
+    xywh_scale,
+    class_scale,
+    input_image_size=None
+):
+    """See https://github.com/pjreddie/darknet/blob/master/cfg/yolov3-tiny.cfg"""
+
+    assert len(anchors) == 3*2*2
+    nb_anchors_per_scale = 3
+
+    input_image = Input(shape=input_image_size or (None, None, 3)) # net_h, net_w, 3
+    true_boxes  = Input(shape=(1, 1, 1, max_box_per_image, 4))
+    true_yolo_1 = Input(shape=(None, None, nb_anchors_per_scale, 4+1+nb_class)) # grid_h, grid_w, nb_anchor, 5+nb_class
+    true_yolo_2 = Input(shape=(None, None, nb_anchors_per_scale, 4+1+nb_class)) # grid_h, grid_w, nb_anchor, 5+nb_class
+
+    # # Layer  [0, 4]
+    # x1 = compose_layers(input_image,
+    #     darknet_conv_block_layers(0,   16, kernel_size=3, strides=1, max_pool_size=2, max_pool_stride=2) +  # yolov3-tiny.cfg#L25-L35
+    #     darknet_conv_block_layers(1,   32, kernel_size=3, strides=1, max_pool_size=2, max_pool_stride=2) +  # yolov3-tiny.cfg#L37-L47
+    #     darknet_conv_block_layers(2,   64, kernel_size=3, strides=1, max_pool_size=2, max_pool_stride=2) +  # yolov3-tiny.cfg#L49-L59
+    #     darknet_conv_block_layers(3,  128, kernel_size=3, strides=1, max_pool_size=2, max_pool_stride=2) +  # yolov3-tiny.cfg#L61-L71
+    #     darknet_conv_block_layers(4,  256, kernel_size=3, strides=1, max_pool_size=2, max_pool_stride=2) +  # yolov3-tiny.cfg#L73-L83
+    #     darknet_conv_block_layers(5,  512, kernel_size=3, strides=1, max_pool_size=2, max_pool_stride=1) +  # yolov3-tiny.cfg#L85-L95
+    #     darknet_conv_block_layers(6, 1024, kernel_size=3, strides=1)                                        # yolov3-tiny.cfg#L97-L103
+    # )
+
+    # x2 = compose_layers(x1,
+    #     darknet_conv_block_layers(7,  256, kernel_size=1, strides=1, batch_normalization=True)  +  # yolov3-tiny.cfg#L107-L113
+    #     darknet_conv_block_layers(8,  512, kernel_size=3, strides=1, batch_normalization=True)  +  # yolov3-tiny.cfg#L115-L121
+    #     darknet_conv_block_layers(9,  255, kernel_size=1, strides=1, batch_normalization=False)    # yolov3-tiny.cfg#L123-L128
+    # )
+
+    #
+    # Taken from https://github.com/qqwweee/keras-yolo3/blob/e6598d13c703029b2686bc2eb8d5c09badf42992/yolo3/model.py#L89-L119
+    #
+
+    x1 = compose_layers(input_image,
+        darknet_conv_block_layers( 0,   16, kernel_size=3, max_pool_size=2, max_pool_stride=2) +
+        darknet_conv_block_layers( 1,   32, kernel_size=3, max_pool_size=2, max_pool_stride=2) +
+        darknet_conv_block_layers( 2,   64, kernel_size=3, max_pool_size=2, max_pool_stride=2) +
+        darknet_conv_block_layers( 3,  128, kernel_size=3, max_pool_size=2, max_pool_stride=2) +
+        darknet_conv_block_layers( 4,  256, kernel_size=3)
+    )
+
+    x2 = compose_layers(x1,
+        darknet_conv_block_layers( 5,  None,               max_pool_size=2, max_pool_stride=2, batch_normalization=False)   +
+        darknet_conv_block_layers( 6,  512, kernel_size=3, max_pool_size=2, max_pool_stride=1)                              +
+        darknet_conv_block_layers( 7, 1024, kernel_size=3)                                                                  +
+        darknet_conv_block_layers( 8,  256, kernel_size=1)
+    )
+
+    pred_yolo_1 = compose_layers(x2,
+        darknet_conv_block_layers( 9,                                512, kernel_size=3)                                                +
+        darknet_conv_block_layers(10,  nb_anchors_per_scale*(nb_class+5), kernel_size=1, activation=None, batch_normalization=False)
+    )
+
+    x2 = compose_layers(x2,
+        darknet_conv_block_layers(11,  128, kernel_size=1) +
+        [UpSampling2D(2, name="upsample_12")]
+    )
+
+    pred_yolo_2 = compose_layers([x2, x1],
+        [Concatenate(name="concat_13")]                                                                                                 +
+        darknet_conv_block_layers(14,                                256, kernel_size=3)                                                +
+        darknet_conv_block_layers(15,  nb_anchors_per_scale*(nb_class+5), kernel_size=1, activation=None, batch_normalization=False)
+    )
+
+    loss_yolo_1 = YoloLayer(anchors[12:], 
+                            [1*num for num in max_grid], 
+                            batch_size, 
+                            warmup_batches, 
+                            ignore_thresh, 
+                            grid_scales[0],
+                            obj_scale,
+                            noobj_scale,
+                            xywh_scale,
+                            class_scale)([input_image, pred_yolo_1, true_yolo_1, true_boxes])
+
+    loss_yolo_2 = YoloLayer(anchors[6:12], 
+                            [2*num for num in max_grid], 
+                            batch_size, 
+                            warmup_batches, 
+                            ignore_thresh, 
+                            grid_scales[1],
+                            obj_scale,
+                            noobj_scale,
+                            xywh_scale,
+                            class_scale)([input_image, pred_yolo_2, true_yolo_2, true_boxes])
+
+    train_model = Model([input_image, true_boxes, true_yolo_1, true_yolo_2,], [loss_yolo_1, loss_yolo_2,])
+    infer_model = Model(input_image, [pred_yolo_1, pred_yolo_2])
 
     return [train_model, infer_model]
 

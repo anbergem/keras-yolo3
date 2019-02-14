@@ -5,7 +5,7 @@ import os
 import numpy as np
 import json
 from voc import parse_voc_annotation
-from yolo import create_yolov3_model, dummy_loss
+from yolo import create_yolov3_model, create_tiny_yolov3_model, dummy_loss
 from generator import BatchGenerator
 from utils.utils import normalize, evaluate, makedirs
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -122,11 +122,14 @@ def create_model(
     obj_scale,
     noobj_scale,
     xywh_scale,
-    class_scale  
+    class_scale,
+    use_tiny_model
 ):
+    model_generator = create_tiny_yolov3_model if use_tiny_model else create_yolov3_model
+
     if multi_gpu > 1:
         with tf.device('/cpu:0'):
-            template_model, infer_model = create_yolov3_model(
+            template_model, infer_model = model_generator(
                 nb_class            = nb_class, 
                 anchors             = anchors, 
                 max_box_per_image   = max_box_per_image, 
@@ -141,7 +144,7 @@ def create_model(
                 class_scale         = class_scale
             )
     else:
-        template_model, infer_model = create_yolov3_model(
+        template_model, infer_model = model_generator(
             nb_class            = nb_class, 
             anchors             = anchors, 
             max_box_per_image   = max_box_per_image, 
@@ -210,7 +213,8 @@ def _main_(args):
         shuffle             = True,
         jitter              = 0.3,
         norm                = normalize,
-        explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None
+        explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None,
+        num_scales          = 2 if "architecture" in config["model"] and config["model"]["architecture"] == "tiny" else 3
     )
     
     valid_generator = BatchGenerator(
@@ -225,7 +229,8 @@ def _main_(args):
         shuffle             = True, 
         jitter              = 0.0, 
         norm                = normalize,
-        explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None
+        explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None,
+        num_scales          = 2 if "architecture" in config["model"] and config["model"]["architecture"] == "tiny" else 3
     )
 
     ###############################
@@ -255,6 +260,7 @@ def _main_(args):
         noobj_scale         = config['train']['noobj_scale'],
         xywh_scale          = config['train']['xywh_scale'],
         class_scale         = config['train']['class_scale'],
+        use_tiny_model      = "architecture" in config["model"] and config["model"]["architecture"] == "tiny"
     )
 
     ###############################
@@ -296,7 +302,7 @@ def _main_(args):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description='train and evaluate YOLO_v3 model on any dataset')
-    argparser.add_argument('-c', '--conf', default="training/yolo3_all_laptop.json", help='path to configuration file')   
+    argparser.add_argument('-c', '--conf', default="training/yolo3_tiny_all_laptop.json", help='path to configuration file')
 
     args = argparser.parse_args()
     _main_(args)
