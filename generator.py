@@ -14,12 +14,18 @@ class BatchGenerator(Sequence):
         max_box_per_image=30,
         batch_size=1,
         min_net_size=320,
-        max_net_size=608,    
-        shuffle=True, 
-        jitter=True, 
+        max_net_size=608,
+        shuffle=True,
         norm=None,
         explicit_net_size=None,
-        num_scales=3
+        num_scales=3,
+        aug_jitter=0.3,
+        aug_scale=(0.25, 2.0),
+        aug_hue=18,
+        aug_saturation=1.5,
+        aug_exposure=1.5,
+        aug_flip=True,
+        aug_pad=True
     ):
         self.instances          = instances
         self.batch_size         = batch_size
@@ -29,18 +35,25 @@ class BatchGenerator(Sequence):
         self.min_net_size       = (min_net_size//self.downsample)*self.downsample
         self.max_net_size       = (max_net_size//self.downsample)*self.downsample
         self.shuffle            = shuffle
-        self.jitter             = jitter
         self.norm               = norm
         self.anchors            = [BoundBox(0, 0, anchors[2*i], anchors[2*i+1]) for i in range(len(anchors)//2)]
         self.net_h              = 416  
         self.net_w              = 416
         self.explicit_net_size  = explicit_net_size
         self.num_scales         = num_scales
+        
+        self.aug_jitter          = aug_jitter or 0.0
+        self.aug_scale           = aug_scale or (1.0, 1.0)
+        self.aug_hue             = aug_hue or 0.0
+        self.aug_saturation      = aug_saturation or 1.0
+        self.aug_exposure        = aug_exposure or 1.0
+        self.aug_flip            = aug_flip
+        self.aug_pad             = aug_pad
 
         if shuffle: np.random.shuffle(self.instances)
-            
+
     def __len__(self):
-        return int(np.ceil(float(len(self.instances))/self.batch_size))           
+        return int(np.ceil(float(len(self.instances))/self.batch_size))
 
     def __getitem__(self, idx):
         # get image input size, change every 10 batches
@@ -96,8 +109,8 @@ class BatchGenerator(Sequence):
 
                 shifted_box = BoundBox(0, 
                                        0,
-                                       obj['xmax']-obj['xmin'],                                                
-                                       obj['ymax']-obj['ymin'])    
+                                       obj['xmax']-obj['xmin'],
+                                       obj['ymax']-obj['ymin'])
                 
                 for i in range(len(self.anchors)):
                     anchor = self.anchors[i]
@@ -125,7 +138,7 @@ class BatchGenerator(Sequence):
                 box = [center_x, center_y, w, h]
 
                 # determine the index of the label
-                obj_indx = self.labels.index(obj['name'])  
+                obj_indx = self.labels.index(obj['name'])
 
                 # determine the location of the cell responsible for this object
                 grid_x = int(np.floor(center_x))
@@ -152,7 +165,7 @@ class BatchGenerator(Sequence):
                 for obj in all_objs:
                     cv2.rectangle(img, (obj['xmin'],obj['ymin']), (obj['xmax'],obj['ymax']), (255,0,0), 3)
                     cv2.putText(img, obj['name'], 
-                                (obj['xmin']+2, obj['ymin']+12), 
+                                (obj['xmin']+2, obj['ymin']+12),
                                 0, 1.2e-3 * img.shape[0], 
                                 (0,255,0), 2)
                 
@@ -175,40 +188,49 @@ class BatchGenerator(Sequence):
         return self.net_h, self.net_w
     
     def _aug_image(self, instance, net_h, net_w):
-        image_name = instance['filename']
-        image = cv2.imread(image_name) # RGB image
-        
-        if image is None: print('Cannot find ', image_name)
-        image = image[:,:,::-1] # RGB image
-            
-        image_h, image_w, _ = image.shape
-        
-        # determine the amount of scaling and cropping
-        dw = self.jitter * image_w;
-        dh = self.jitter * image_h;
+        # Read image in BGR format
+        filename = instance['filename']
+        image = cv2.imread(filename)
+        if image is None:
+            raise RuntimeError("Unable to load image file: %s" % filename)
 
-        new_ar = (image_w + np.random.uniform(-dw, dw)) / (image_h + np.random.uniform(-dh, dh));
-        scale = np.random.uniform(0.25, 2);
+        # Convert to RGB
+        image = image[:,:,::-1]
+        
+        # Apply jitter and scaling
+        image_h, image_w, _ = image.shape
+        dw = self.aug_jitter * image_w
+        dh = self.aug_jitter * image_h
+        new_ar = (image_w + np.random.uniform(-dw, dw)) / (image_h + np.random.uniform(-dh, dh))
+        scale = np.random.uniform(self.aug_scale[0], self.aug_scale[1])
 
         if (new_ar < 1):
-            new_h = int(scale * net_h);
-            new_w = int(net_h * new_ar);
+            new_h = int(scale * net_h)
+            new_w = int(new_h * new_ar)
         else:
-            new_w = int(scale * net_w);
-            new_h = int(net_w / new_ar);
-            
-        dx = int(np.random.uniform(0, net_w - new_w));
-        dy = int(np.random.uniform(0, net_h - new_h));
+            new_w = int(scale * net_w)
+            new_h = int(new_w / new_ar)
         
+        # Apply padding to place the image in a random position within the net
+        if not self.aug_pad:
+            dx = 0
+            dy = 0
+        else:
+            dx = int(np.random.uniform(0, net_w - new_w))
+            dy = int(np.random.uniform(0, net_h - new_h))
+
         # apply scaling and cropping
         im_sized = apply_random_scale_and_crop(image, new_w, new_h, net_w, net_h, dx, dy)
         
         # randomly distort hsv space
-        im_sized = random_distort_image(im_sized)
+        im_sized = random_distort_image(im_sized, self.aug_hue, self.aug_saturation, self.aug_exposure)
         
         # randomly flip
-        flip = np.random.randint(2)
-        im_sized = random_flip(im_sized, flip)
+        if self.aug_flip:
+            flip = np.random.randint(2)
+            im_sized = random_flip(im_sized, flip)
+        else:
+            flip = False
             
         # correct the size and pos of bounding boxes
         all_objs = correct_bounding_boxes(instance['object'], new_w, new_h, net_w, net_h, dx, dy, flip, image_w, image_h)
