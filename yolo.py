@@ -509,3 +509,90 @@ def create_tiny_yolov3_model(
 
 def dummy_loss(y_true, y_pred):
     return tf.sqrt(tf.reduce_sum(y_pred))
+
+
+def create_micro_yolov3_model(
+    nb_class, 
+    anchors, 
+    max_box_per_image, 
+    max_grid, 
+    batch_size, 
+    warmup_batches,
+    ignore_thresh,
+    grid_scales,
+    obj_scale,
+    noobj_scale,
+    xywh_scale,
+    class_scale,
+    input_image_size=None
+):
+    """See https://github.com/pjreddie/darknet/blob/master/cfg/yolov3-tiny.cfg"""
+
+    assert len(anchors) == 3*2*2
+    nb_anchors_per_scale = 3
+
+    input_image = Input(shape=input_image_size or (None, None, 3)) # net_h, net_w, 3
+    true_boxes  = Input(shape=(1, 1, 1, max_box_per_image, 4))
+    true_yolo_1 = Input(shape=(None, None, nb_anchors_per_scale, 4+1+nb_class)) # grid_h, grid_w, nb_anchor, 5+nb_class
+    true_yolo_2 = Input(shape=(None, None, nb_anchors_per_scale, 4+1+nb_class)) # grid_h, grid_w, nb_anchor, 5+nb_class
+
+    x1 = compose_layers(input_image,
+        darknet_conv_block_layers( 0,   16, kernel_size=3, max_pool_size=2, max_pool_stride=2) +
+        darknet_conv_block_layers( 1,   32, kernel_size=3, max_pool_size=2, max_pool_stride=2) +
+        darknet_conv_block_layers( 2,   64, kernel_size=3, max_pool_size=2, max_pool_stride=2) +
+        darknet_conv_block_layers( 3,  128, kernel_size=3, max_pool_size=2, max_pool_stride=2) +
+        darknet_conv_block_layers( 4,  128, kernel_size=3)
+    )
+
+    x2 = compose_layers(x1,
+        darknet_conv_block_layers( 5,  None,               max_pool_size=2, max_pool_stride=2, batch_normalization=False)   +
+        darknet_conv_block_layers( 6,  512, kernel_size=3, max_pool_size=2, max_pool_stride=1)                              +
+        darknet_conv_block_layers( 7,  512, kernel_size=3)                                                                  +
+        darknet_conv_block_layers( 8,  256, kernel_size=1)
+    )
+
+    pred_yolo_1 = compose_layers(x2,
+        darknet_conv_block_layers( 9,                                256, kernel_size=3)                                                +
+        darknet_conv_block_layers(10,  nb_anchors_per_scale*(nb_class+5), kernel_size=1, activation=None, batch_normalization=False)
+    )
+
+    x2 = compose_layers(x2,
+        darknet_conv_block_layers(11,  128, kernel_size=1) +
+        [UpSampling2D(2, name="upsample_12")]
+    )
+
+    pred_yolo_2 = compose_layers([x2, x1],
+        [Concatenate(name="concat_13")]                                                                                                 +
+        darknet_conv_block_layers(14,                                128, kernel_size=3)                                                +
+        darknet_conv_block_layers(15,  nb_anchors_per_scale*(nb_class+5), kernel_size=1, activation=None, batch_normalization=False)
+    )
+
+    loss_yolo_1 = YoloLayer(anchors[12:], 
+                            [1*num for num in max_grid], 
+                            batch_size, 
+                            warmup_batches, 
+                            ignore_thresh, 
+                            grid_scales[0],
+                            obj_scale,
+                            noobj_scale,
+                            xywh_scale,
+                            class_scale)([input_image, pred_yolo_1, true_yolo_1, true_boxes])
+
+    loss_yolo_2 = YoloLayer(anchors[6:12], 
+                            [2*num for num in max_grid], 
+                            batch_size, 
+                            warmup_batches, 
+                            ignore_thresh, 
+                            grid_scales[1],
+                            obj_scale,
+                            noobj_scale,
+                            xywh_scale,
+                            class_scale)([input_image, pred_yolo_2, true_yolo_2, true_boxes])
+
+    train_model = Model([input_image, true_boxes, true_yolo_1, true_yolo_2,], [loss_yolo_1, loss_yolo_2,])
+    infer_model = Model(input_image, [pred_yolo_1, pred_yolo_2])
+
+    return [train_model, infer_model]
+
+def dummy_loss(y_true, y_pred):
+    return tf.sqrt(tf.reduce_sum(y_pred))
