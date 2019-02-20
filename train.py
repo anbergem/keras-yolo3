@@ -5,7 +5,7 @@ import os
 import numpy as np
 import json
 from voc import parse_voc_annotation
-from yolo import create_yolov3_model, create_tiny_yolov3_model, dummy_loss
+import yolo
 from generator import BatchGenerator
 from utils.utils import normalize, evaluate, makedirs
 from keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -123,13 +123,12 @@ def create_model(
     noobj_scale,
     xywh_scale,
     class_scale,
-    use_tiny_model
+    model_type="full"
 ):
-    model_generator = create_tiny_yolov3_model if use_tiny_model else create_yolov3_model
-
     if multi_gpu > 1:
         with tf.device('/cpu:0'):
-            template_model, infer_model = model_generator(
+            template_model, infer_model = yolo.create_yolo_model(
+                model_type,
                 nb_class            = nb_class, 
                 anchors             = anchors, 
                 max_box_per_image   = max_box_per_image, 
@@ -144,7 +143,8 @@ def create_model(
                 class_scale         = class_scale
             )
     else:
-        template_model, infer_model = model_generator(
+        template_model, infer_model = yolo.create_yolo_model(
+            model_type,
             nb_class            = nb_class, 
             anchors             = anchors, 
             max_box_per_image   = max_box_per_image, 
@@ -174,7 +174,7 @@ def create_model(
         train_model = template_model      
 
     optimizer = Adam(lr=lr, clipnorm=0.001)
-    train_model.compile(loss=dummy_loss, optimizer=optimizer)             
+    train_model.compile(loss=yolo.dummy_loss, optimizer=optimizer)
 
     return train_model, infer_model
 
@@ -202,35 +202,47 @@ def _main_(args):
     #   Create the generators 
     ###############################    
     train_generator = BatchGenerator(
-        instances           = train_ints, 
-        anchors             = config['model']['anchors'],   
-        labels              = labels,        
+        instances           = train_ints,
+        anchors             = config['model']['anchors'],
+        labels              = labels,
         downsample          = 32, # ratio between network input's size and network output's size, 32 for YOLOv3
         max_box_per_image   = max_box_per_image,
         batch_size          = config['train']['batch_size'],
         min_net_size        = config['model']['min_input_size'],
         max_net_size        = config['model']['max_input_size'],
         shuffle             = True,
-        jitter              = 0.3,
         norm                = normalize,
         explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None,
-        num_scales          = 2 if "architecture" in config["model"] and config["model"]["architecture"] == "tiny" else 3
+        num_scales          = yolo.get_num_yolo_scales(config["model"]["architecture"]),
+        aug_jitter          = config["train"]["augmentation"]["jitter"],
+        aug_scale           = config["train"]["augmentation"]["scale"],
+        aug_hue             = config["train"]["augmentation"]["hue"],
+        aug_saturation      = config["train"]["augmentation"]["saturation"],
+        aug_exposure        = config["train"]["augmentation"]["exposure"],
+        aug_flip            = config["train"]["augmentation"]["flip"],
+        aug_pad             = config["train"]["augmentation"]["pad"]
     )
     
     valid_generator = BatchGenerator(
-        instances           = valid_ints, 
-        anchors             = config['model']['anchors'],   
-        labels              = labels,        
+        instances           = valid_ints,
+        anchors             = config['model']['anchors'],
+        labels              = labels,
         downsample          = 32, # ratio between network input's size and network output's size, 32 for YOLOv3
         max_box_per_image   = max_box_per_image,
         batch_size          = config['train']['batch_size'],
         min_net_size        = config['model']['min_input_size'],
-        max_net_size        = config['model']['max_input_size'],   
-        shuffle             = True, 
-        jitter              = 0.0, 
+        max_net_size        = config['model']['max_input_size'],
+        shuffle             = True,
         norm                = normalize,
         explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None,
-        num_scales          = 2 if "architecture" in config["model"] and config["model"]["architecture"] == "tiny" else 3
+        num_scales          = yolo.get_num_yolo_scales(config["model"]["architecture"]),
+        aug_jitter          = None,
+        aug_scale           = None,
+        aug_hue             = None,
+        aug_saturation      = None,
+        aug_exposure        = None,
+        aug_flip            = False,
+        aug_pad             = False
     )
 
     ###############################
@@ -260,7 +272,7 @@ def _main_(args):
         noobj_scale         = config['train']['noobj_scale'],
         xywh_scale          = config['train']['xywh_scale'],
         class_scale         = config['train']['class_scale'],
-        use_tiny_model      = "architecture" in config["model"] and config["model"]["architecture"] == "tiny"
+        model_type          = config["model"]["architecture"]
     )
 
     ###############################
@@ -282,7 +294,7 @@ def _main_(args):
         callbacks        = callbacks, 
         workers          = 4,
         max_queue_size   = 8,
-        use_multiprocessing = True
+        use_multiprocessing = False
     )
 
     # make a GPU version of infer_model for evaluation
@@ -302,7 +314,7 @@ def _main_(args):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description='train and evaluate YOLO_v3 model on any dataset')
-    argparser.add_argument('-c', '--conf', default="training/yolo3_tiny_all_laptop.json", help='path to configuration file')
+    argparser.add_argument('-c', '--conf', default="training/yolo3_micro_noop_all_laptop.json", help='path to configuration file')
 
     args = argparser.parse_args()
     _main_(args)

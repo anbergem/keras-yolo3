@@ -257,6 +257,23 @@ def _conv_block(inp, convs, do_skip=True):
 
     return add([skip_connection, x]) if do_skip else x        
 
+def create_yolo_model(model_type, *args, **kwargs):
+    generators = {
+        "full": create_yolov3_model,
+        "tiny": create_tiny_yolov3_model,
+        "micro": create_micro_yolov3_model
+    }
+    model_generator = generators[model_type]
+    return model_generator(*args, **kwargs)
+
+def get_num_yolo_scales(model_type):
+    scales = {
+        "full": 3,
+        "tiny": 2,
+        "micro": 2
+    }
+    return scales[model_type]
+
 def create_yolov3_model(
     nb_class, 
     anchors, 
