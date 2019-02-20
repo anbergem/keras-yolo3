@@ -123,7 +123,8 @@ def create_model(
     noobj_scale,
     xywh_scale,
     class_scale,
-    model_type="full"
+    model_type="full",
+    input_image_size=(None, None, 3)
 ):
     if multi_gpu > 1:
         with tf.device('/cpu:0'):
@@ -140,7 +141,8 @@ def create_model(
                 obj_scale           = obj_scale,
                 noobj_scale         = noobj_scale,
                 xywh_scale          = xywh_scale,
-                class_scale         = class_scale
+                class_scale         = class_scale,
+                input_image_size    = (input_image_size[1], input_image_size[0], input_image_size[2])
             )
     else:
         template_model, infer_model = yolo.create_yolo_model(
@@ -156,7 +158,8 @@ def create_model(
             obj_scale           = obj_scale,
             noobj_scale         = noobj_scale,
             xywh_scale          = xywh_scale,
-            class_scale         = class_scale
+            class_scale         = class_scale,
+            input_image_size    = (input_image_size[1], input_image_size[0], input_image_size[2])
         )  
 
     # load the pretrained weight if exists, otherwise load the backend weight only
@@ -212,13 +215,14 @@ def _main_(args):
         max_net_size        = config['model']['max_input_size'],
         shuffle             = True,
         norm                = normalize,
-        explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None,
+        explicit_net_size   = tuple(config['model']['explicit_input_size']),
         num_scales          = yolo.get_num_yolo_scales(config["model"]["architecture"]),
         aug_jitter          = config["train"]["augmentation"]["jitter"],
         aug_scale           = config["train"]["augmentation"]["scale"],
         aug_hue             = config["train"]["augmentation"]["hue"],
         aug_saturation      = config["train"]["augmentation"]["saturation"],
         aug_exposure        = config["train"]["augmentation"]["exposure"],
+        aug_gray            = config["train"]["augmentation"]["gray"],
         aug_flip            = config["train"]["augmentation"]["flip"],
         aug_pad             = config["train"]["augmentation"]["pad"]
     )
@@ -234,13 +238,14 @@ def _main_(args):
         max_net_size        = config['model']['max_input_size'],
         shuffle             = True,
         norm                = normalize,
-        explicit_net_size   = tuple(config['model']['explicit_input_size']) if 'explicit_input_size' in config['model'] else None,
+        explicit_net_size   = tuple(config['model']['explicit_input_size']),
         num_scales          = yolo.get_num_yolo_scales(config["model"]["architecture"]),
         aug_jitter          = None,
         aug_scale           = None,
         aug_hue             = None,
         aug_saturation      = None,
         aug_exposure        = None,
+        aug_gray            = config["train"]["augmentation"]["gray"],
         aug_flip            = False,
         aug_pad             = False
     )
@@ -272,7 +277,8 @@ def _main_(args):
         noobj_scale         = config['train']['noobj_scale'],
         xywh_scale          = config['train']['xywh_scale'],
         class_scale         = config['train']['class_scale'],
-        model_type          = config["model"]["architecture"]
+        model_type          = config["model"]["architecture"],
+        input_image_size    = config["model"]["explicit_input_size"]
     )
 
     ###############################
@@ -314,7 +320,7 @@ def _main_(args):
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser(description='train and evaluate YOLO_v3 model on any dataset')
-    argparser.add_argument('-c', '--conf', default="training/yolo3_micro_noop_all_laptop.json", help='path to configuration file')
+    argparser.add_argument('-c', '--conf', default="training/yolo3_micro_gray_all_laptop.json", help='path to configuration file')
 
     args = argparser.parse_args()
     _main_(args)

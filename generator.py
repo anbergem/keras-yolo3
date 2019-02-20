@@ -24,6 +24,7 @@ class BatchGenerator(Sequence):
         aug_hue=18,
         aug_saturation=1.5,
         aug_exposure=1.5,
+        aug_gray=False,
         aug_flip=True,
         aug_pad=True
     ):
@@ -47,6 +48,7 @@ class BatchGenerator(Sequence):
         self.aug_hue             = aug_hue or 0.0
         self.aug_saturation      = aug_saturation or 1.0
         self.aug_exposure        = aug_exposure or 1.0
+        self.aug_gray            = aug_gray
         self.aug_flip            = aug_flip
         self.aug_pad             = aug_pad
 
@@ -68,8 +70,12 @@ class BatchGenerator(Sequence):
             r_bound = len(self.instances)
             l_bound = r_bound - self.batch_size
 
-        x_batch = np.zeros((r_bound - l_bound, net_h, net_w, 3))             # input images
-        t_batch = np.zeros((r_bound - l_bound, 1, 1, 1,  self.max_box_per_image, 4))   # list of groundtruth boxes
+        num_channels = 3
+        if self.aug_gray and self.norm is not None:
+            num_channels = 1
+
+        x_batch = np.zeros((r_bound - l_bound, net_h, net_w, num_channels))             # input images
+        t_batch = np.zeros((r_bound - l_bound, 1, 1, 1,  self.max_box_per_image, 4))    # list of groundtruth boxes
 
         # initialize the inputs and the outputs
         if self.num_scales == 3:
@@ -161,13 +167,17 @@ class BatchGenerator(Sequence):
             if self.norm != None: 
                 x_batch[instance_count] = self.norm(img)
             else:
+                # Convert from gray to color for drawing on it
+                if self.aug_gray:
+                    img = cv2.cvtColor(np.squeeze(img[:,:]), cv2.COLOR_GRAY2RGB)
+
                 # plot image and bounding boxes for sanity check
                 for obj in all_objs:
-                    cv2.rectangle(img, (obj['xmin'],obj['ymin']), (obj['xmax'],obj['ymax']), (255,0,0), 3)
+                    cv2.rectangle(img, (obj['xmin'],obj['ymin']), (obj['xmax'],obj['ymax']), (255,0,0), 1)
                     cv2.putText(img, obj['name'], 
                                 (obj['xmin']+2, obj['ymin']+12),
                                 0, 1.2e-3 * img.shape[0], 
-                                (0,255,0), 2)
+                                (0,255,0), 1)
                 
                 x_batch[instance_count] = img
 
@@ -231,6 +241,10 @@ class BatchGenerator(Sequence):
             im_sized = random_flip(im_sized, flip)
         else:
             flip = False
+
+        # Make into gray image
+        if self.aug_gray:
+            im_sized = cv2.cvtColor(im_sized, cv2.COLOR_RGB2GRAY)[:,:,np.newaxis]
             
         # correct the size and pos of bounding boxes
         all_objs = correct_bounding_boxes(instance['object'], new_w, new_h, net_w, net_h, dx, dy, flip, image_w, image_h)
