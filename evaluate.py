@@ -41,7 +41,7 @@ def _main_(args):
         min_net_size        = config['model']['min_input_size'],
         max_net_size        = config['model']['max_input_size'],   
         shuffle             = True, 
-        jitter              = 0.0, 
+        aug_jitter              = 0.0,
         norm                = normalize
     )
 
