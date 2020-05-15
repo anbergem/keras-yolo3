@@ -19,8 +19,6 @@ def evaluate(model,
              iou_threshold=0.5,
              obj_thresh=0.5,
              nms_thresh=0.45,
-             net_h=416,
-             net_w=416,
              save_path=None):
     """ Evaluate a given dataset using a given model.
     code originally from https://github.com/fizyr/keras-retinanet
@@ -40,6 +38,8 @@ def evaluate(model,
     # gather all detections and annotations
     all_detections     = [[None for i in range(generator.num_classes())] for j in range(generator.size())]
     all_annotations    = [[None for i in range(generator.num_classes())] for j in range(generator.size())]
+
+    _, net_h, net_w, net_c = model.input_shape
 
     for i in range(generator.size()):
         raw_image = [generator.load_image(i)]
